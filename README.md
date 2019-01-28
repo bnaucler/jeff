@@ -11,6 +11,8 @@ However; the code is portable and should work pretty much anywhere. Please raise
 
 ## Why jeff?
 jeff is designed to operate with as little memory and CPU usage as possible, and might be suitable for low-powered devices such as an attiny.
+
+
 The version in the repository currently requires ncurses, which does in itself consume some systems resources, but the project goal is to create an efficient engine. Future commits will separate the game- and rendering engines to further accentuate this fact.
 
 ## Dependencies
@@ -24,10 +26,10 @@ sudo make all install
 Unless otherwise specified, the binary will be installed in `/usr/bin`.
 
 ## Key bindings
-`a` - Moves piece to the left
-`s` - Moves piece to the right
-`j` - Rotates piece right
-`k` - Rotates piece left
+`a` - Moves piece to the left  
+`s` - Moves piece to the right  
+`j` - Rotates piece right  
+`k` - Rotates piece left  
 `q` - Quit
 
 Set `DEBUG` to `0` in jeff.c to remove debug output.
