@@ -1,5 +1,5 @@
 CC = cc
-TARGET = bitris
+TARGET = jeff
 SOURCE = *.c
 DESTDIR = /usr/bin
 CFLAGS ?= -Wall -pedantic -g -lncurses
