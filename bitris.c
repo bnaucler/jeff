@@ -1,6 +1,6 @@
 /*
  *
- * bitris.c - a minimalist tetris implementation
+ * jeff - a minimalist tetris engine
  * B Nauclér (mail@bnaucler.se) 2018
  * MIT License (do whatever you want)
  *
@@ -29,7 +29,7 @@
  */
 
 typedef struct {
-    int8_t block, pos, x, y; // OR block & pos together?
+    int8_t block, pos, x, y;
 } piece;
 
 const uint16_t blk[NUMPCS][4] = {
@@ -68,8 +68,6 @@ const uint16_t smp[5] = {0, 40, 100, 300, 1200}; // score multipliers
 
     or this memory monster, in the worst case
     or a uint8_t * 10..?
-
-800 720 630 550 470 380 300 220 130 100 80 80 80 70 70 70 50 50 50 30 30 30 30 30 30 30 30 30 30 20
 
     const uint16_t speed[] = 800, 720, 630, 550, 470, 380, 300, 220, 130, 100,
                              80, 80, 80, 70, 70, 70, 50, 50, 50, 30, 30, 30,
@@ -228,7 +226,6 @@ int main(void) {
     newpiece(&p);
 
     for(;;) {
-    // while(!go) {
         plotpiece(pf, &p, 1);
         draw(pf, &p, lev, lines, score);
         plotpiece(pf, &p, 0);
