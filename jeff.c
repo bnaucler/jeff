@@ -9,17 +9,20 @@
 #include <stdio.h>
 #include <ncurses.h>        // test impl
 #include <stdlib.h>
-#include <time.h>
-
-#define PFH 20
-#define PFW 10
-#define NUMPCS 7
-#define XSTART (PFW / 2) - 2
-#define YSTART -2
 
 #define DEBUG 1
 
-#define ROWMX 1023
+#define PFY 20
+#define PFX 10
+#define NUMPCS 7
+#define XSTART (PFX / 2) - 2
+#define YSTART -2
+
+#define BYTE 8
+#define SHORT 16
+
+#define INDEX bit / BYTE
+#define OFFSET bit % BYTE
 
 /* Reference material
  *
@@ -45,35 +48,42 @@ const uint16_t blk[NUMPCS][4] = {
 
 const uint16_t smp[5] = {0, 40, 100, 300, 1200}; // score multipliers
 
-/* TODO: Implement algo to calculate the following drop speeds
-   NES configuration:
-
-  Level    Drop speed
-         (frames/line)
-     00            48 (0.8 s)
-     01            43 (0.72s)
-     02            38 (0.63s)
-     03            33 (0.55s)
-     04            28 (0.47s)
-     05            23 (0.38s)
-     06            18 (0.3 s)
-     07            13 (0.22s)
-     08             8 (0.13s)
-     09             6 (0.1 s)
-  10-12             5 (0.08s)
-  13-15             4 (0.07s)
-  16-18             3 (0.05s)
-  19-28             2 (0.03s)
-    29+             1 (0.02s)
-
-    or this memory monster, in the worst case
-    or a uint8_t * 10..?
-
-    const uint16_t speed[] = 800, 720, 630, 550, 470, 380, 300, 220, 130, 100,
-                             80, 80, 80, 70, 70, 70, 50, 50, 50, 30, 30, 30,
-                             30, 30, 30, 30, 30, 30, 30, 20;
+/*
+   rough approximation of falling speeds through hyperbolic regression
+   can be replaced with:
+   const uint16_t speed[] = {800, 720, 630, 550, 470, 380, 300, 220, 130, 100,
+                             80, 80, 80, 70, 70, 70, 50, 50, 50, 30, 30, 30, 30,
+                             30, 30, 30, 30, 30, 30, 20};
+   if NES accuracy is prioritized over resource use
 */
+static uint16_t getspeed(uint8_t lev) { return 50 - ((lev + 1) * 2) + (800/(lev + 1)); }
 
+// calculates number of bytes needed to create grid
+static uint8_t getpfsize() {
+
+    uint16_t bit = PFX * PFY; // macro bound var name
+
+    return INDEX + (OFFSET ? 1 : 0);
+}
+
+// sets individual bit to val (1 / 0)
+static void setbit(uint8_t *grid, const uint8_t x, const uint8_t y, const uint8_t val) {
+
+    uint16_t bit = (y * PFX) + x; // macro bound var name
+
+    if(val) grid[INDEX] |= 1 << OFFSET;
+    else grid[INDEX] &=  ~(1 << OFFSET);
+}
+
+// returns 1 if bit at x & y is set, else 0
+static uint8_t getbit(const uint8_t *grid, const uint8_t x, const uint8_t y) {
+
+    uint16_t bit = (y * PFX) + x; // macro bound var name
+
+    return grid[INDEX] & 1 << OFFSET ? 1 : 0;
+}
+
+// resets piece structure
 static void newpiece(piece *p) {
 
     // NES style piece selection algo
@@ -86,15 +96,41 @@ static void newpiece(piece *p) {
     p->y = YSTART;
 }
 
+// returns 1 if line y is full
+static uint8_t fulline(const uint8_t *pf, const uint16_t y) {
+
+    // TODO: another (macro defined) ret val for totally empty? - use to stop cpline loop
+
+    for(uint8_t x = 0; x < PFX; x++) {
+        if(!getbit(pf, x, y)) return 0;
+    }
+
+    return 1;
+}
+
+// copies line ysrc to ydst
+static void cpline(uint8_t *pf, const uint8_t ydst, const uint8_t ysrc) {
+
+    // TODO: operate on full type when possible, else getbit() & setbit() which feels sloooow
+    //       perhaps func for full line check first, to enable early stop?
+
+    uint8_t bit, x;
+
+    for(x = 0; x < PFX; x++){
+        bit = getbit(pf, x, ysrc);
+        setbit(pf, x, ydst, bit);
+    }
+}
+
 // clears full lines - returns score
-static uint16_t cline(uint16_t *pf, uint16_t *lines, uint8_t *lev, uint8_t py) {
+static uint16_t cline(uint8_t *pf, uint16_t *lines, uint8_t *lev, const uint8_t py) {
 
-    uint8_t newlines = 0;
+    uint8_t x, y, i, newlines = 0;
 
-    for(int8_t y = py; y < PFH; y++) {
-        if(pf[y] == ROWMX) {
-            for(int8_t i = y; i > 0; i--) pf[i] = pf[i - 1];
-            pf[0] = 0;
+    for(y = py; y < py + 4 && py < PFY; y++) {
+        if(fulline(pf, y)) {
+            for(i = y; i > 0; i--) cpline(pf, i, i - 1);
+            for(x = 0; x < PFX; x++) setbit(pf, x, 0, 0);
             newlines++;
         }
     }
@@ -111,47 +147,43 @@ static int8_t setxy(const piece *p, const int8_t i, int8_t *x, int8_t *y) {
     if(!(blk[p->block][p->pos] & 1 << i)) return 1;
     *y = i / 4 + p->y;
     *x = i % 4 + p->x;
-    
+
     return 0;
 }
 
 // checks for collisions
-static uint8_t ccol(const uint16_t *pf, const piece *p) {
+static uint8_t ccol(const uint8_t *pf, const piece *p) {
 
     int8_t x, y, i = 0;
 
     do {
         if(setxy(p, i, &x, &y)) continue;
-        if(x < 0 || x > PFW - 1 || y > PFH - 1 || pf[y] & 1 << x) return 1;
-    } while(++i < 16);
+        if(x < 0 || x > PFX - 1 || y > PFY - 1 || getbit(pf, x, y)) return 1;
+    } while(++i < SHORT);
 
     return 0;
 }
 
 // updates pf by applying act to rows of p
-static void plotpiece(uint16_t *pf, const piece *p, const uint8_t val) {
+static void plotpiece(uint8_t *pf, const piece *p, const uint8_t val) {
 
     int8_t x, y, i = 0;
 
-    do {
-        if(setxy(p, i, &x, &y)) continue;
-
-        if(val) pf[y] |= 1 << x;
-        else pf[y] &=  ~(1 << x);
-    } while(++i < 16);
+    do { if(!setxy(p, i, &x, &y)) setbit(pf, x, y, val);
+    } while(++i < SHORT);
 }
 
 // draws the playing field - curses version
-static void draw(const uint16_t *pf, piece *p, const uint8_t lev, const uint16_t lines, const uint16_t score) {
+static void draw(const uint8_t *pf, piece *p, const uint8_t lev, const uint16_t lines, const uint16_t score) {
 
     erase();
 
-    for (uint8_t y = 0; y < PFH; y++){
-        for(uint8_t x = 0; x < PFW; x++)
-            addch(pf[y] & 1 << x ? ACS_CKBOARD : '.');
-        if(DEBUG) printw("   pf[%d] = %d\n", y, pf[y]);
-        else addch('\n');
-    } 
+    uint8_t x, y;
+
+    for(y = 0; y < PFY; y++){
+        for(x = 0; x < PFX; x++) addch(getbit(pf, x, y) ? ACS_CKBOARD : '.');
+        addch('\n');
+    }
 
     printw("level: %d\tlines: %d\tscore: %d\n", lev, lines, score);
     if(DEBUG) printw("DEBUG: p->block = %d[%d], bval = %d, p->x = %d, p->y = %d\n",
@@ -169,7 +201,6 @@ static void cppiece(piece *d, const piece *s) {
 
     while(--sz) *pd++ = *ps++;
 }
-
 
 // Applies transformation to piece based on user input - curses impl
 static uint8_t getinput(piece *p) {
@@ -191,7 +222,7 @@ static uint8_t getinput(piece *p) {
 
         case 'k':
             p->pos++;
-            if(p->pos > 3) p->pos = 0; 
+            if(p->pos > 3) p->pos = 0;
             break;
 
         case 'j':
@@ -203,24 +234,36 @@ static uint8_t getinput(piece *p) {
     return 0;
 }
 
+// sets random seed without time.h
+static void setsrand() {
+
+    char buf[3]; // should be random enough for everyone
+
+    FILE *f = fopen("/dev/urandom", "r");
+    fgets(buf, 2, f);
+    srand(buf[0] + buf[1]);
+
+    fclose(f);
+}
+
 int main(void) {
 
-	srand(time(NULL));
-    rand();
+	setsrand();
 
-    uint16_t pf[PFH];
+    // TODO: factory function? will remove need for sz
+    uint8_t sz = getpfsize();
+    uint8_t pf[sz];
+    for(uint8_t i = 0; i < sz; i++) pf[i] = 0;
 
-    uint16_t score = 0, lines = 0;
     uint8_t lev = 0;
-
-    for(uint8_t i = 0; i < PFH; i++) pf[i] = 0;
+    uint16_t score = 0, lines = 0;
 
     // curses impl
     initscr();
     raw();
     noecho();
     nodelay(stdscr, 1);
-    timeout(200);
+    timeout(getspeed(lev));
 
     piece p, n;
     newpiece(&p);
@@ -236,6 +279,7 @@ int main(void) {
         if(ccol(pf, &n)) {
             plotpiece(pf, &p, 1);
             score += cline(pf, &lines, &lev, p.y);
+            timeout(getspeed(lev));
             newpiece(&p);
             if(ccol(pf, &p)) break;
 
