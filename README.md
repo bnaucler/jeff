@@ -36,7 +36,7 @@ Unless otherwise specified, the binary will be installed in `/usr/bin`.
 `q` - Quit  
 And most other keys on the keyboard will 'drop' the piece.
 
-Set `DEBUG` to `0` in jeff.c to remove debug output.
+Set `DEBUG` to `0` in jeff.h to remove debug output.
 
 ## Contributing
 Submit an issue or send a pull request if you feel inclined to get involved.

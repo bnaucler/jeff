@@ -1,39 +1,6 @@
-/*
- *
- * jeff - a minimalist tetris engine
- * B Nauclér (mail@bnaucler.se) 2018
- * MIT License (do whatever you want)
- *
- */
-
+#include "jeff.h"
 #include <stdio.h>
-#include <ncurses.h>        // test impl
 #include <stdlib.h>
-
-#define DEBUG 1
-
-#define PFY 20
-#define PFX 10
-#define NUMPCS 7
-#define XSTART (PFX / 2) - 2
-#define YSTART -2
-
-#define BYTE 8
-#define SHORT 16
-
-#define INDEX bit / BYTE
-#define OFFSET bit % BYTE
-
-/* Reference material
- *
- * https://www.colinfahey.com/tetris/tetris.html
- * https://meatfighter.com/nintendotetrisai/
- *
- */
-
-typedef struct {
-    int8_t block, pos, x, y;
-} piece;
 
 const uint16_t blk[NUMPCS][4] = {
 
@@ -54,33 +21,27 @@ const uint16_t smp[5] = {0, 40, 100, 300, 1200}; // score multipliers
    const uint16_t speed[] = {800, 720, 630, 550, 470, 380, 300, 220, 130, 100,
                              80, 80, 80, 70, 70, 70, 50, 50, 50, 30, 30, 30, 30,
                              30, 30, 30, 30, 30, 30, 20};
-   if NES accuracy is prioritized over resource use
+   if NES accuracy is prioritized over resource requirements
 */
-static uint16_t getspeed(uint8_t lev) { return 50 - ((lev + 1) * 2) + (800/(lev + 1)); }
 
-// calculates number of bytes needed to create grid
-static uint8_t getpfsize() {
-
-    uint16_t bit = PFX * PFY; // macro bound var name
-
-    return INDEX + (OFFSET ? 1 : 0);
-}
+// sets falling speed based on level
+uint16_t getspeed(uint8_t lev) { return 50 - ((lev + 1) * 2) + (800/(lev + 1)); }
 
 // sets individual bit to val (1 / 0)
-static void setbit(uint8_t *grid, const uint8_t x, const uint8_t y, const uint8_t val) {
+static void setbit(uint8_t *pf, const uint8_t x, const uint8_t y, const uint8_t val) {
 
     uint16_t bit = (y * PFX) + x; // macro bound var name
 
-    if(val) grid[INDEX] |= 1 << OFFSET;
-    else grid[INDEX] &=  ~(1 << OFFSET);
+    if(val) pf[INDEX] |= 1 << OFFSET;
+    else pf[INDEX] &=  ~(1 << OFFSET);
 }
 
 // returns 1 if bit at x & y is set, else 0
-static uint8_t getbit(const uint8_t *grid, const uint8_t x, const uint8_t y) {
+uint8_t getbit(const uint8_t *pf, const uint8_t x, const uint8_t y) {
 
     uint16_t bit = (y * PFX) + x; // macro bound var name
 
-    return grid[INDEX] & 1 << OFFSET ? 1 : 0;
+    return pf[INDEX] & 1 << OFFSET ? 1 : 0;
 }
 
 // resets piece structure
@@ -144,11 +105,11 @@ static uint16_t cline(uint8_t *pf, uint16_t *lines, uint8_t *lev, const uint8_t 
 // gets real x & y coordinates for block pieces
 static int8_t setxy(const piece *p, const int8_t i, int8_t *x, int8_t *y) {
 
-    if(!(blk[p->block][p->pos] & 1 << i)) return 1;
+    if(!(blk[p->block][p->pos] & 1 << i)) return 0;
     *y = i / 4 + p->y;
     *x = i % 4 + p->x;
 
-    return 0;
+    return 1;
 }
 
 // checks for collisions
@@ -157,39 +118,20 @@ static uint8_t ccol(const uint8_t *pf, const piece *p) {
     int8_t x, y, i = 0;
 
     do {
-        if(setxy(p, i, &x, &y)) continue;
+        if(!setxy(p, i, &x, &y)) continue;
         if(x < 0 || x > PFX - 1 || y > PFY - 1 || getbit(pf, x, y)) return 1;
     } while(++i < SHORT);
 
     return 0;
 }
 
-// updates pf by applying act to rows of p
+// updates pf by setting or unsetting bits from p
 static void plotpiece(uint8_t *pf, const piece *p, const uint8_t val) {
 
     int8_t x, y, i = 0;
 
-    do { if(!setxy(p, i, &x, &y)) setbit(pf, x, y, val);
+    do { if(setxy(p, i, &x, &y)) setbit(pf, x, y, val);
     } while(++i < SHORT);
-}
-
-// draws the playing field - curses version
-static void draw(const uint8_t *pf, piece *p, const uint8_t lev, const uint16_t lines, const uint16_t score) {
-
-    erase();
-
-    uint8_t x, y;
-
-    for(y = 0; y < PFY; y++){
-        for(x = 0; x < PFX; x++) addch(getbit(pf, x, y) ? ACS_CKBOARD : '.');
-        addch('\n');
-    }
-
-    printw("level: %d\tlines: %d\tscore: %d\n", lev, lines, score);
-    if(DEBUG) printw("DEBUG: p->block = %d[%d], bval = %d, p->x = %d, p->y = %d\n",
-            p->block, p->pos, blk[p->block][0], p->x, p->y);
-
-    refresh();
 }
 
 // raw memory copy of piece s to d
@@ -202,38 +144,6 @@ static void cppiece(piece *d, const piece *s) {
     while(--sz) *pd++ = *ps++;
 }
 
-// Applies transformation to piece based on user input - curses impl
-static uint8_t getinput(piece *p) {
-
-    char c = getch();
-    switch(c) {
-
-        case 'q':
-            return 1;
-            break;
-
-        case 'a':
-            p->x--;
-            break;
-
-        case 's':
-            p->x++;
-            break;
-
-        case 'k':
-            p->pos++;
-            if(p->pos > 3) p->pos = 0;
-            break;
-
-        case 'j':
-            p->pos--;
-            if(p->pos < 0) p->pos = 3;
-            break;
-    }
-
-    return 0;
-}
-
 // sets random seed without time.h
 static void setsrand() {
 
@@ -241,29 +151,29 @@ static void setsrand() {
 
     FILE *f = fopen("/dev/urandom", "r");
     fgets(buf, 2, f);
-    srand(buf[0] + buf[1]);
+    srand(buf[0] * buf[1]);
 
     fclose(f);
+}
+
+// calculates size and allocates memory for playing field
+static uint8_t *mkpf() {
+
+    uint16_t bit = PFX * PFY; // macro bound var name
+    uint8_t sz = INDEX + (OFFSET ? 1 : 0);
+
+    return calloc(sz, sizeof(uint8_t));
 }
 
 int main(void) {
 
 	setsrand();
 
-    // TODO: factory function? will remove need for sz
-    uint8_t sz = getpfsize();
-    uint8_t pf[sz];
-    for(uint8_t i = 0; i < sz; i++) pf[i] = 0;
-
     uint8_t lev = 0;
     uint16_t score = 0, lines = 0;
+    uint8_t *pf = mkpf();
 
-    // curses impl
-    initscr();
-    raw();
-    noecho();
-    nodelay(stdscr, 1);
-    timeout(getspeed(lev));
+    ncinit(lev);
 
     piece p, n;
     newpiece(&p);
@@ -292,6 +202,7 @@ int main(void) {
     }
 
     endwin(); // curses impl
+    free(pf);
 
     return 0;
 }
