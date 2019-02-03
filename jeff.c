@@ -1,7 +1,8 @@
 #include "jeff.h"
-#include <stdio.h>
+// #include <stdio.h>
 #include <stdlib.h>
 
+// tetromino definitions
 const uint16_t blk[NUMPCS][4] = {
 
     {19968, 17984, 3648, 19520},  // T
@@ -60,8 +61,6 @@ static void newpiece(piece *p) {
 // returns 1 if line y is full
 static uint8_t fulline(const uint8_t *pf, const uint16_t y) {
 
-    // TODO: another (macro defined) ret val for totally empty? - use to stop cpline loop
-
     for(uint8_t x = 0; x < PFX; x++) {
         if(!getbit(pf, x, y)) return 0;
     }
@@ -70,31 +69,38 @@ static uint8_t fulline(const uint8_t *pf, const uint16_t y) {
 }
 
 // copies line ysrc to ydst
-static void cpline(uint8_t *pf, const uint8_t ydst, const uint8_t ysrc) {
+static uint8_t cpline(uint8_t *pf, const uint8_t ydst, const uint8_t ysrc) {
 
-    // TODO: operate on full type when possible, else getbit() & setbit() which feels sloooow
-    //       perhaps func for full line check first, to enable early stop?
-
-    uint8_t bit, x;
+    uint8_t bit, x, ret = 0;
 
     for(x = 0; x < PFX; x++){
-        bit = getbit(pf, x, ysrc);
+        ret += bit = getbit(pf, x, ysrc);
         setbit(pf, x, ydst, bit);
     }
+
+    return ret;
 }
 
-// clears full lines - returns score
+// drops all lines above y - pads with 0 if necessary
+static uint8_t droplines(uint8_t *pf, const uint8_t y) {
+
+    for(uint8_t i = y; i > 0; i--) {
+        if(!cpline(pf, i, i - 1)) break;
+    }
+
+    return 1;
+}
+
+// checks for full lines at collision - returns score
 static uint16_t cline(uint8_t *pf, uint16_t *lines, uint8_t *lev, const uint8_t py) {
 
-    uint8_t x, y, i, newlines = 0;
+    uint8_t y, newlines = 0;
 
     for(y = py; y < py + 4 && py < PFY; y++) {
-        if(fulline(pf, y)) {
-            for(i = y; i > 0; i--) cpline(pf, i, i - 1);
-            for(x = 0; x < PFX; x++) setbit(pf, x, 0, 0);
-            newlines++;
-        }
+        if(fulline(pf, y)) newlines += droplines(pf, y);
     }
+
+    if(!newlines) return 0;
 
     *lines += newlines;
     *lev = *lines / 10;
@@ -154,6 +160,7 @@ static void setsrand() {
     srand(buf[0] * buf[1]);
 
     fclose(f);
+    rand();
 }
 
 // calculates size and allocates memory for playing field
